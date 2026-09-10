@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ArcGIS Online enterprise login check</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f3f6f8;
+    --surface: #ffffff;
+    --ink: #16232e;
+    --muted: #5d6b77;
+    --line: #d6dee5;
+    --accent: #1f5fa8;
+    --accent-ink: #ffffff;
+    --yes: #1c7a4c;
+    --yes-bg: #e3f4ea;
+    --no: #5a6672;
+    --no-bg: #eceff2;
+    --unk: #a9701a;
+    --unk-bg: #fbf0dc;
+    --focus: #1f5fa8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #111920; --surface: #1a242e; --ink: #e7edf2; --muted: #98a6b3; --line: #2c3945;
+      --accent: #6fa8e6; --accent-ink: #0e1a27;
+      --yes: #6fd39a; --yes-bg: #17352a; --no: #a4b0bb; --no-bg: #26303a; --unk: #e9b45a; --unk-bg: #3a2d14;
+      --focus: #6fa8e6;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #111920; --surface: #1a242e; --ink: #e7edf2; --muted: #98a6b3; --line: #2c3945;
+    --accent: #6fa8e6; --accent-ink: #0e1a27;
+    --yes: #6fd39a; --yes-bg: #17352a; --no: #a4b0bb; --no-bg: #26303a; --unk: #e9b45a; --unk-bg: #3a2d14;
+    --focus: #6fa8e6;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: "IBM Plex Sans", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 15px; line-height: 1.5; min-height: 100vh;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 40px 24px 64px; }
+  header { max-width: 62ch; margin-bottom: 32px; }
+  h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 8px; line-height: 1.2; }
+  header p { margin: 0; color: var(--muted); }
+  header code { font-family: inherit; font-weight: 500; color: var(--ink); }
+
+  .grid { display: grid; grid-template-columns: minmax(280px, 360px) 1fr; gap: 24px; align-items: start; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+  .input { padding: 20px; }
+  label { display: block; font-weight: 500; margin-bottom: 8px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+  textarea {
+    width: 100%; min-height: 240px; resize: vertical; padding: 12px;
+    font: inherit; line-height: 1.6; color: var(--ink); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 4px;
+  }
+  textarea:focus, button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  button {
+    font: inherit; font-weight: 500; padding: 9px 16px; border-radius: 4px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  button:disabled { opacity: .5; cursor: default; }
+
+  .results { min-height: 240px; }
+  .results-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .summary { color: var(--muted); }
+  .summary b { color: var(--ink); font-weight: 600; }
+  .results-head .actions { margin: 0; }
+  .empty { padding: 48px 20px; color: var(--muted); text-align: center; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 500; color: var(--muted); font-size: 13px; }
+  tr:last-child td { border-bottom: 0; }
+  td.prefix { font-weight: 600; white-space: nowrap; }
+  td.prefix a { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--muted); }
+  td.prefix a:hover { border-bottom-style: solid; }
+  td.org { color: var(--muted); }
+  td.detail { color: var(--muted); font-size: 14px; max-width: 46ch; overflow-wrap: anywhere; }
+  td.detail .src { opacity: .7; }
+  td.detail details { margin-top: 6px; }
+  td.detail summary { cursor: pointer; font-size: 13px; }
+  td.detail pre { font-size: 12px; max-height: 260px; overflow: auto; background: var(--bg); padding: 8px; border-radius: 4px; }
+  .pill {
+    display: inline-block; min-width: 44px; text-align: center; padding: 3px 10px; border-radius: 999px;
+    font-weight: 600; font-size: 14px; line-height: 1.5;
+  }
+  .pill.yes { color: var(--yes); background: var(--yes-bg); }
+  .pill.no { color: var(--no); background: var(--no-bg); }
+  .pill.unknown { color: var(--unk); background: var(--unk-bg); }
+  .pill.pending { color: var(--muted); background: var(--bg); font-weight: 400; }
+  .tablewrap { overflow-x: auto; }
+  .legend { margin: 14px 0 0; color: var(--muted); font-size: 13px; max-width: 70ch; }
+  .notice { display: none; margin: 0 0 20px; padding: 12px 16px; border-radius: 4px; background: var(--unk-bg); color: var(--ink); border: 1px solid var(--unk); }
+  .notice.show { display: block; }
+  @media (prefers-reduced-motion: no-preference) {
+    .pill { transition: background-color .2s, color .2s; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Enterprise login check for ArcGIS Online</h1>
+    <p>Paste one or more organization URL prefixes — the <code>myorg</code> in <code>myorg.maps.arcgis.com</code> — and find out which ones have SAML or OpenID Connect logins turned on. Nothing here requires signing in; each organization is asked for its public sign-in options.</p>
+  </header>
+
+  <div class="notice" id="notice"></div>
+
+  <div class="grid">
+    <section class="panel input">
+      <label for="prefixes">Prefixes, one per line</label>
+      <p class="hint">Full URLs are fine too; the prefix will be pulled out of them.</p>
+      <textarea id="prefixes" spellcheck="false" placeholder="esri&#10;myorg&#10;https://cityofexample.maps.arcgis.com/home/"></textarea>
+      <div class="actions">
+        <button class="primary" id="run">Check logins</button>
+        <button id="clear">Clear</button>
+      </div>
+    </section>
+
+    <section class="panel results">
+      <div class="results-head">
+        <div class="summary" id="summary">No results yet</div>
+        <div class="actions">
+          <button id="copy" disabled>Copy results</button>
+          <button id="csv" disabled>Download CSV</button>
+        </div>
+      </div>
+      <div class="empty" id="empty">Results appear here as each organization answers.</div>
+      <div class="tablewrap" hidden id="tablewrap">
+        <table>
+          <thead><tr><th>Prefix</th><th>Organization</th><th>Enterprise logins</th><th>Details</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <p class="legend"><b>Yes</b> means SAML or OpenID Connect logins are enabled. <b>No</b> means only built-in ArcGIS logins were reported. <b>?</b> means the organization could not be found or did not answer, so nothing can be concluded.</p>
+</div>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const textarea = $('prefixes'), rows = $('rows'), summary = $('summary');
+  const runBtn = $('run'), clearBtn = $('clear'), copyBtn = $('copy'), csvBtn = $('csv');
+  const CONCURRENCY = 4, TIMEOUT_MS = 12000;
+  let results = [];
+  let running = false;
+
+  function normalize(raw) {
+    const s = raw.trim();
+    if (!s) return null;
+    const m = s.match(/^(?:https?:\/\/)?([^\/\s:?#]+)/i);
+    let host = (m ? m[1] : s).toLowerCase();
+    const sub = host.match(/^([a-z0-9-]+)\.maps\.arcgis\.com$/);
+    if (sub) return { prefix: sub[1] };
+    if (host === 'arcgis.com' || host === 'www.arcgis.com') return { invalid: s, reason: 'No organization prefix in this URL' };
+    if (/^[a-z0-9-]+$/.test(host)) return { prefix: host };
+    return { invalid: s, reason: 'Not a valid ArcGIS Online prefix' };
+  }
+
+  function withTimeout(promise, ms, label) {
+    return Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error(label + ' timed out')), ms))]);
+  }
+
+  // JSON via fetch, with a JSONP fallback (the ArcGIS REST API supports callback=) if the browser refuses the fetch.
+  async function fetchJson(url) {
+    try {
+      const r = await withTimeout(fetch(url), TIMEOUT_MS, 'portals/self');
+      return await r.json();
+    } catch (err) {
+      if (/timed out/.test(err.message)) throw err;
+      return withTimeout(new Promise((resolve, reject) => {
+        const cb = 'agol_cb_' + Math.random().toString(36).slice(2);
+        const script = document.createElement('script');
+        function cleanup() { delete window[cb]; script.remove(); }
+        window[cb] = (data) => { cleanup(); resolve(data); };
+        script.onerror = () => { cleanup(); reject(new Error('portals/self blocked (' + (err.message || 'network error') + ')')); };
+        script.src = url + '&callback=' + cb;
+        document.head.appendChild(script);
+      }), TIMEOUT_MS, 'portals/self');
+    }
+  }
+
+  async function fetchText(url) {
+    const r = await withTimeout(fetch(url), TIMEOUT_MS, 'sign-in page');
+    return { status: r.status, text: await r.text() };
+  }
+
+  // Look for sign-in configuration inside a page or JSON string.
+  function scanSignInMarkers(text) {
+    text = String(text)
+      .replace(/&quot;|&#34;|&#x22;/g, '"').replace(/&#39;|&#x27;|&apos;/g, "'").replace(/&amp;/g, '&')
+      .replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\\//g, '/');
+    const found = {};
+    const boolKeys = ['canSignInIDP', 'canSignInOIDC', 'canSignInArcGIS', 'canSignInSocial', 'samlEnabled', 'oidcEnabled', 'idpEnabled', 'hasIdp', 'enterpriseLoginEnabled'];
+    boolKeys.forEach(k => {
+      const m = text.match(new RegExp('["\']?' + k + '["\']?\\s*[:=]\\s*(true|false)'));
+      if (m) found[k] = m[1] === 'true';
+    });
+    const strKeys = ['idpUrl', 'idpName', 'enterpriseLoginUrl', 'samlLoginUrl', 'oidcLoginUrl', 'samlUrl', 'oidcUrl', 'oidcName'];
+    strKeys.forEach(k => {
+      const re = new RegExp('["\']?' + k + '["\']?\\s*[:=]\\s*(?:["\']([^"\']{0,300})["\']|(null|undefined))');
+      const m = text.match(re);
+      if (!m) return;
+      const val = m[1] === undefined ? '' : m[1].trim();
+      found[k] = val;               // '' means the key is present but empty/null
+    });
+    return found;
+  }
+
+  function decide(markers) {
+    const hasIdpName = typeof markers.idpName === 'string' && markers.idpName !== '';
+    const hasOidcName = typeof markers.oidcName === 'string' && markers.oidcName !== '';
+    const saml = markers.canSignInIDP === true || markers.samlEnabled === true || !!markers.samlLoginUrl || !!markers.samlUrl || hasIdpName;
+    const oidc = markers.canSignInOIDC === true || markers.oidcEnabled === true || !!markers.oidcLoginUrl || !!markers.oidcUrl || hasOidcName;
+    const anyIdp = saml || oidc || !!markers.idpUrl || !!markers.enterpriseLoginUrl || markers.idpEnabled === true || markers.hasIdp === true || markers.enterpriseLoginEnabled === true;
+    const emptyIdpName = typeof markers.idpName === 'string' && markers.idpName === '';
+    const explicitNo = !anyIdp && (emptyIdpName || markers.canSignInIDP === false || markers.samlEnabled === false || markers.idpEnabled === false || markers.hasIdp === false || markers.enterpriseLoginEnabled === false);
+    if (anyIdp) {
+      const kinds = [];
+      if (saml) kinds.push('SAML');
+      if (oidc) kinds.push('OpenID Connect');
+      if (!kinds.length) kinds.push('enterprise identity provider');
+      let detail = kinds.join(' and ');
+      if (hasIdpName) detail += ` (${markers.idpName})`;
+      if (markers.canSignInArcGIS === false) detail += '; ArcGIS logins are turned off';
+      return { status: 'yes', detail };
+    }
+    if (explicitNo) return { status: 'no', detail: 'ArcGIS logins only' };
+    return null;
+  }
+
+  async function check(prefix) {
+    const host = `https://${prefix}.maps.arcgis.com`;
+    const diag = [];
+    let name = '';
+    // Probe 1: portals/self
+    let selfJson = null;
+    try {
+      selfJson = await fetchJson(`${host}/sharing/rest/portals/self?f=json&culture=en`);
+      if (selfJson && selfJson.error) {
+        diag.push('portals/self error: ' + (selfJson.error.message || selfJson.error.code));
+      } else if (selfJson && typeof selfJson === 'object') {
+        if (selfJson.urlKey && selfJson.urlKey.toLowerCase() !== prefix) {
+          return { status: '?', detail: `Portal answered as "${selfJson.urlKey}", not "${prefix}"`, raw: selfJson };
+        }
+        if (!selfJson.urlKey && !selfJson.name) diag.push('portals/self returned no organization (prefix may not exist)');
+        name = selfJson.name || '';
+        const m = scanSignInMarkers(JSON.stringify(selfJson));
+        const d = decide(m);
+        if (d) return Object.assign(d, { name, raw: selfJson, markers: m, source: 'portals/self' });
+        diag.push('portals/self has no sign-in flags (' + Object.keys(selfJson).length + ' fields: ' + Object.keys(selfJson).sort().join(', ') + ')');
+      }
+    } catch (e) {
+      diag.push(e.message);
+    }
+    // Probe 2: the organization's sign-in page
+    const redirect = encodeURIComponent(host + '/home/postsignin.html');
+    const signinUrl = `${host}/sharing/rest/oauth2/authorize?client_id=arcgisonline&redirect_uri=${redirect}&showSocialLogins=false&hideEnterpriseLogins=false&response_type=token`;
+    try {
+      const page = await fetchText(signinUrl);
+      const m = scanSignInMarkers(page.text);
+      const d = decide(m);
+      if (d) return Object.assign(d, { name, raw: selfJson, markers: m, source: 'sign-in page' });
+      const looksLikeSignIn = page.status === 200 && /oauth|arcgisonline|sign\s*in/i.test(page.text);
+      if (looksLikeSignIn && !/idpName/i.test(page.text)) {
+        return { status: 'no', name, detail: 'ArcGIS logins only (no idpName in sign-in page)', raw: selfJson, markers: m, source: 'sign-in page' };
+      }
+      const hits = Object.keys(m);
+      diag.push(`sign-in page fetched (HTTP ${page.status}, ${page.text.length} chars) but no recognized sign-in markers` + (hits.length ? ': ' + hits.join(', ') : ''));
+      // Keep a snippet around anything that looks relevant, for debugging
+      const snips = [];
+      const re = /.{0,80}(saml|oidc|openid|idp|enterprise ?login|organization['’]s login|canSignIn)[^]{0,120}/gi;
+      let mm, n = 0;
+      while ((mm = re.exec(page.text)) && n < 8) { snips.push(mm[0].replace(/\s+/g, ' ')); n++; }
+      if (snips.length) diag.push('snippets: ' + snips.join(' … '));
+    } catch (e) {
+      diag.push('sign-in page: ' + e.message);
+    }
+    return { status: '?', name, detail: 'Could not determine. ' + diag.join(' | '), raw: selfJson };
+  }
+
+  function pill(status) {
+    const cls = status === 'yes' ? 'yes' : status === 'no' ? 'no' : status === '?' ? 'unknown' : 'pending';
+    const text = status === 'yes' ? 'Yes' : status === 'no' ? 'No' : status === '?' ? '?' : 'checking';
+    return `<span class="pill ${cls}">${text}</span>`;
+  }
+
+  function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+  function renderRow(i) {
+    const r = results[i];
+    const tr = document.getElementById('row-' + i);
+    const link = r.invalid ? esc(r.input) : `<a href="https://${esc(r.prefix)}.maps.arcgis.com/home/" target="_blank" rel="noopener">${esc(r.prefix)}</a>`;
+    let detail = esc(r.detail || '');
+    if (r.source) detail += ` <span class="src">(from ${esc(r.source)})</span>`;
+    if (r.raw) detail += `<details><summary>Raw portals/self response</summary><pre>${esc(JSON.stringify(r.raw, null, 2))}</pre></details>`;
+    tr.innerHTML = `<td class="prefix">${link}</td><td class="org">${esc(r.name || '')}</td><td>${pill(r.status)}</td><td class="detail">${detail}</td>`;
+  }
+
+  function renderSummary() {
+    const done = results.filter(r => r.status !== 'pending');
+    const c = { yes: 0, no: 0, '?': 0 };
+    done.forEach(r => c[r.status]++);
+    if (!results.length) { summary.textContent = 'No results yet'; return; }
+    const progress = running ? ` · ${done.length} of ${results.length} checked` : '';
+    summary.innerHTML = `<b>${c.yes}</b> yes · <b>${c.no}</b> no · <b>${c['?']}</b> unknown${progress}`;
+  }
+
+  async function run() {
+    if (running) return;
+    const seen = new Set();
+    const items = [];
+    textarea.value.split(/\r?\n/).forEach(line => {
+      const n = normalize(line);
+      if (!n) return;
+      const key = n.prefix || n.invalid;
+      if (seen.has(key)) return;
+      seen.add(key);
+      items.push(n);
+    });
+    if (!items.length) { textarea.focus(); return; }
+
+    running = true; runBtn.disabled = true; copyBtn.disabled = true; csvBtn.disabled = true;
+    results = items.map(n => n.invalid
+      ? { input: n.invalid, invalid: true, status: '?', detail: n.reason }
+      : { prefix: n.prefix, status: 'pending' });
+    rows.innerHTML = results.map((_, i) => `<tr id="row-${i}"></tr>`).join('');
+    $('empty').hidden = true; $('tablewrap').hidden = false;
+    results.forEach((_, i) => renderRow(i));
+    renderSummary();
+
+    const queue = results.map((r, i) => i).filter(i => !results[i].invalid);
+    async function worker() {
+      while (queue.length) {
+        const i = queue.shift();
+        const out = await check(results[i].prefix);
+        Object.assign(results[i], out);
+        renderRow(i); renderSummary();
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker));
+
+    running = false; runBtn.disabled = false; copyBtn.disabled = false; csvBtn.disabled = false;
+    renderSummary();
+  }
+
+  function label(r) { return r.status === 'yes' ? 'yes' : r.status === 'no' ? 'no' : '?'; }
+  function tableText(sep, quote) {
+    const q = quote ? (v) => `"${String(v ?? '').replace(/"/g, '""')}"` : (v) => String(v ?? '');
+    const head = ['prefix', 'organization', 'enterprise_logins', 'details'].map(q).join(sep);
+    const body = results.map(r => [r.prefix || r.input, r.name, label(r), r.detail].map(q).join(sep));
+    return [head, ...body].join('\n');
+  }
+
+  copyBtn.addEventListener('click', async () => {
+    const text = results.map(r => `${r.prefix || r.input}\t${label(r)}`).join('\n');
+    try { await navigator.clipboard.writeText(text); copyBtn.textContent = 'Copied'; }
+    catch { copyBtn.textContent = 'Copy failed'; }
+    setTimeout(() => copyBtn.textContent = 'Copy results', 1500);
+  });
+
+  csvBtn.addEventListener('click', () => {
+    const blob = new Blob([tableText(',', true)], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'arcgis-enterprise-logins.csv';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+
+  clearBtn.addEventListener('click', () => {
+    if (running) return;
+    textarea.value = ''; results = []; rows.innerHTML = '';
+    $('empty').hidden = false; $('tablewrap').hidden = true;
+    copyBtn.disabled = true; csvBtn.disabled = true; renderSummary(); textarea.focus();
+  });
+
+  runBtn.addEventListener('click', run);
+  textarea.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') run(); });
+})();
+</script>
+</body>
+</html>
