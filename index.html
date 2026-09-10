@@ -113,7 +113,7 @@
 <div class="wrap">
   <header>
     <h1>Enterprise login check for ArcGIS Online</h1>
-    <p>Paste one or more organization URL prefixes — the <code>myorg</code> in <code>myorg.maps.arcgis.com</code> — and find out which ones have SAML or OpenID Connect logins turned on. Nothing here requires signing in; each organization is asked for its public sign-in options.</p>
+    <p>Paste one or more organization URL prefixes — the <code>myorg</code> in <code>myorg.maps.arcgis.com</code> — and find out which ones have SAML or OpenID Connect logins turned on. Nothing here requires signing in; each organization's public sign-in page is read (by <code>check.php</code> on tbaker.com) and checked for an enterprise identity provider.</p>
   </header>
 
   <div class="notice" id="notice"></div>
@@ -140,14 +140,14 @@
       <div class="empty" id="empty">Results appear here as each organization answers.</div>
       <div class="tablewrap" hidden id="tablewrap">
         <table>
-          <thead><tr><th>Prefix</th><th>Organization</th><th>Enterprise logins</th><th>Details</th></tr></thead>
+          <thead><tr><th>Prefix</th><th>Enterprise logins</th><th>Details</th></tr></thead>
           <tbody id="rows"></tbody>
         </table>
       </div>
     </section>
   </div>
 
-  <p class="legend"><b>Yes</b> means SAML or OpenID Connect logins are enabled. <b>No</b> means only built-in ArcGIS logins were reported. <b>?</b> means the organization could not be found or did not answer, so nothing can be concluded.</p>
+  <p class="legend"><b>Yes</b> means the organization's sign-in page names an enterprise identity provider. <b>No</b> means the page loaded with none configured. <b>?</b> means the page could not be read, so nothing can be concluded.</p>
 </div>
 
 <script>
@@ -175,122 +175,22 @@
     return Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error(label + ' timed out')), ms))]);
   }
 
-  // JSON via fetch, with a JSONP fallback (the ArcGIS REST API supports callback=) if the browser refuses the fetch.
-  async function fetchJson(url) {
-    try {
-      const r = await withTimeout(fetch(url), TIMEOUT_MS, 'portals/self');
-      return await r.json();
-    } catch (err) {
-      if (/timed out/.test(err.message)) throw err;
-      return withTimeout(new Promise((resolve, reject) => {
-        const cb = 'agol_cb_' + Math.random().toString(36).slice(2);
-        const script = document.createElement('script');
-        function cleanup() { delete window[cb]; script.remove(); }
-        window[cb] = (data) => { cleanup(); resolve(data); };
-        script.onerror = () => { cleanup(); reject(new Error('portals/self blocked (' + (err.message || 'network error') + ')')); };
-        script.src = url + '&callback=' + cb;
-        document.head.appendChild(script);
-      }), TIMEOUT_MS, 'portals/self');
-    }
-  }
-
-  async function fetchText(url) {
-    const r = await withTimeout(fetch(url), TIMEOUT_MS, 'sign-in page');
-    return { status: r.status, text: await r.text() };
-  }
-
-  // Look for sign-in configuration inside a page or JSON string.
-  function scanSignInMarkers(text) {
-    text = String(text)
-      .replace(/&quot;|&#34;|&#x22;/g, '"').replace(/&#39;|&#x27;|&apos;/g, "'").replace(/&amp;/g, '&')
-      .replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\\//g, '/');
-    const found = {};
-    const boolKeys = ['canSignInIDP', 'canSignInOIDC', 'canSignInArcGIS', 'canSignInSocial', 'samlEnabled', 'oidcEnabled', 'idpEnabled', 'hasIdp', 'enterpriseLoginEnabled'];
-    boolKeys.forEach(k => {
-      const m = text.match(new RegExp('["\']?' + k + '["\']?\\s*[:=]\\s*(true|false)'));
-      if (m) found[k] = m[1] === 'true';
-    });
-    const strKeys = ['idpUrl', 'idpName', 'enterpriseLoginUrl', 'samlLoginUrl', 'oidcLoginUrl', 'samlUrl', 'oidcUrl', 'oidcName'];
-    strKeys.forEach(k => {
-      const re = new RegExp('["\']?' + k + '["\']?\\s*[:=]\\s*(?:["\']([^"\']{0,300})["\']|(null|undefined))');
-      const m = text.match(re);
-      if (!m) return;
-      const val = m[1] === undefined ? '' : m[1].trim();
-      found[k] = val;               // '' means the key is present but empty/null
-    });
-    return found;
-  }
-
-  function decide(markers) {
-    const hasIdpName = typeof markers.idpName === 'string' && markers.idpName !== '';
-    const hasOidcName = typeof markers.oidcName === 'string' && markers.oidcName !== '';
-    const saml = markers.canSignInIDP === true || markers.samlEnabled === true || !!markers.samlLoginUrl || !!markers.samlUrl || hasIdpName;
-    const oidc = markers.canSignInOIDC === true || markers.oidcEnabled === true || !!markers.oidcLoginUrl || !!markers.oidcUrl || hasOidcName;
-    const anyIdp = saml || oidc || !!markers.idpUrl || !!markers.enterpriseLoginUrl || markers.idpEnabled === true || markers.hasIdp === true || markers.enterpriseLoginEnabled === true;
-    const emptyIdpName = typeof markers.idpName === 'string' && markers.idpName === '';
-    const explicitNo = !anyIdp && (emptyIdpName || markers.canSignInIDP === false || markers.samlEnabled === false || markers.idpEnabled === false || markers.hasIdp === false || markers.enterpriseLoginEnabled === false);
-    if (anyIdp) {
-      const kinds = [];
-      if (saml) kinds.push('SAML');
-      if (oidc) kinds.push('OpenID Connect');
-      if (!kinds.length) kinds.push('enterprise identity provider');
-      let detail = kinds.join(' and ');
-      if (hasIdpName) detail += ` (${markers.idpName})`;
-      if (markers.canSignInArcGIS === false) detail += '; ArcGIS logins are turned off';
-      return { status: 'yes', detail };
-    }
-    if (explicitNo) return { status: 'no', detail: 'ArcGIS logins only' };
-    return null;
-  }
+  // check.php reads the organization's sign-in page server-side and returns JSON.
+  const CHECK_ENDPOINT = 'https://tbaker.com/sso-checker/check.php';
 
   async function check(prefix) {
-    const host = `https://${prefix}.maps.arcgis.com`;
-    const diag = [];
-    let name = '';
-    // Probe 1: portals/self
-    let selfJson = null;
+    let r;
     try {
-      selfJson = await fetchJson(`${host}/sharing/rest/portals/self?f=json&culture=en`);
-      if (selfJson && selfJson.error) {
-        diag.push('portals/self error: ' + (selfJson.error.message || selfJson.error.code));
-      } else if (selfJson && typeof selfJson === 'object') {
-        if (selfJson.urlKey && selfJson.urlKey.toLowerCase() !== prefix) {
-          return { status: '?', detail: `Portal answered as "${selfJson.urlKey}", not "${prefix}"`, raw: selfJson };
-        }
-        if (!selfJson.urlKey && !selfJson.name) diag.push('portals/self returned no organization (prefix may not exist)');
-        name = selfJson.name || '';
-        const m = scanSignInMarkers(JSON.stringify(selfJson));
-        const d = decide(m);
-        if (d) return Object.assign(d, { name, raw: selfJson, markers: m, source: 'portals/self' });
-        diag.push('portals/self has no sign-in flags (' + Object.keys(selfJson).length + ' fields: ' + Object.keys(selfJson).sort().join(', ') + ')');
-      }
+      r = await withTimeout(fetch(`${CHECK_ENDPOINT}?prefix=${encodeURIComponent(prefix)}`, { cache: 'no-store' }), TIMEOUT_MS + 5000, 'check.php');
     } catch (e) {
-      diag.push(e.message);
+      return { status: '?', detail: 'Could not reach check.php: ' + e.message };
     }
-    // Probe 2: the organization's sign-in page
-    const redirect = encodeURIComponent(host + '/home/postsignin.html');
-    const signinUrl = `${host}/sharing/rest/oauth2/authorize?client_id=arcgisonline&redirect_uri=${redirect}&showSocialLogins=false&hideEnterpriseLogins=false&response_type=token`;
-    try {
-      const page = await fetchText(signinUrl);
-      const m = scanSignInMarkers(page.text);
-      const d = decide(m);
-      if (d) return Object.assign(d, { name, raw: selfJson, markers: m, source: 'sign-in page' });
-      const looksLikeSignIn = page.status === 200 && /oauth|arcgisonline|sign\s*in/i.test(page.text);
-      if (looksLikeSignIn && !/idpName/i.test(page.text)) {
-        return { status: 'no', name, detail: 'ArcGIS logins only (no idpName in sign-in page)', raw: selfJson, markers: m, source: 'sign-in page' };
-      }
-      const hits = Object.keys(m);
-      diag.push(`sign-in page fetched (HTTP ${page.status}, ${page.text.length} chars) but no recognized sign-in markers` + (hits.length ? ': ' + hits.join(', ') : ''));
-      // Keep a snippet around anything that looks relevant, for debugging
-      const snips = [];
-      const re = /.{0,80}(saml|oidc|openid|idp|enterprise ?login|organization['’]s login|canSignIn)[^]{0,120}/gi;
-      let mm, n = 0;
-      while ((mm = re.exec(page.text)) && n < 8) { snips.push(mm[0].replace(/\s+/g, ' ')); n++; }
-      if (snips.length) diag.push('snippets: ' + snips.join(' … '));
-    } catch (e) {
-      diag.push('sign-in page: ' + e.message);
-    }
-    return { status: '?', name, detail: 'Could not determine. ' + diag.join(' | '), raw: selfJson };
+    if (r.status === 404) return { status: '?', detail: 'check.php was not found next to this page' };
+    let j;
+    try { j = await r.json(); }
+    catch { return { status: '?', detail: `check.php returned something other than JSON (HTTP ${r.status}); is PHP enabled on this server?` }; }
+    const status = j.status === 'yes' || j.status === 'no' ? j.status : '?';
+    return { status, detail: j.detail || '' };
   }
 
   function pill(status) {
@@ -307,8 +207,7 @@
     const link = r.invalid ? esc(r.input) : `<a href="https://${esc(r.prefix)}.maps.arcgis.com/home/" target="_blank" rel="noopener">${esc(r.prefix)}</a>`;
     let detail = esc(r.detail || '');
     if (r.source) detail += ` <span class="src">(from ${esc(r.source)})</span>`;
-    if (r.raw) detail += `<details><summary>Raw portals/self response</summary><pre>${esc(JSON.stringify(r.raw, null, 2))}</pre></details>`;
-    tr.innerHTML = `<td class="prefix">${link}</td><td class="org">${esc(r.name || '')}</td><td>${pill(r.status)}</td><td class="detail">${detail}</td>`;
+    tr.innerHTML = `<td class="prefix">${link}</td><td>${pill(r.status)}</td><td class="detail">${detail}</td>`;
   }
 
   function renderSummary() {
@@ -361,8 +260,8 @@
   function label(r) { return r.status === 'yes' ? 'yes' : r.status === 'no' ? 'no' : '?'; }
   function tableText(sep, quote) {
     const q = quote ? (v) => `"${String(v ?? '').replace(/"/g, '""')}"` : (v) => String(v ?? '');
-    const head = ['prefix', 'organization', 'enterprise_logins', 'details'].map(q).join(sep);
-    const body = results.map(r => [r.prefix || r.input, r.name, label(r), r.detail].map(q).join(sep));
+    const head = ['prefix', 'enterprise_logins', 'details'].map(q).join(sep);
+    const body = results.map(r => [r.prefix || r.input, label(r), r.detail].map(q).join(sep));
     return [head, ...body].join('\n');
   }
 
