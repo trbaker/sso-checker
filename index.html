@@ -49,6 +49,7 @@
   header { max-width: 62ch; margin-bottom: 32px; }
   h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 8px; line-height: 1.2; }
   header p { margin: 0; color: var(--muted); }
+  header .version { font-size: 13px; margin: 0 0 12px; }
   header code { font-family: inherit; font-weight: 500; color: var(--ink); }
 
   .grid { display: grid; grid-template-columns: minmax(280px, 360px) 1fr; gap: 24px; align-items: start; }
@@ -113,6 +114,7 @@
 <div class="wrap">
   <header>
     <h1>Enterprise login check for ArcGIS Online</h1>
+    <p class="version">Version 1.0</p>
     <p>Paste one or more organization URL prefixes — the <code>myorg</code> in <code>myorg.maps.arcgis.com</code> — and find out which ones have SAML or OpenID Connect logins turned on. Nothing here requires signing in; each organization's public sign-in page is read (by <code>check.php</code> on tbaker.com) and checked for an enterprise identity provider.</p>
   </header>
 
