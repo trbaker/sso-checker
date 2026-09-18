@@ -112,6 +112,8 @@
   .pill.pending { color: var(--muted); background: var(--bg); font-weight: 400; }
   .tablewrap { overflow-x: auto; }
   .legend { margin: 14px 0 0; color: var(--muted); font-size: 13px; max-width: 70ch; }
+  .credit { margin: 32px 0 0; color: var(--muted); font-size: 13px; }
+  .credit a { color: var(--accent); }
   .notice { display: none; margin: 0 0 20px; padding: 12px 16px; border-radius: 4px; background: var(--unk-bg); color: var(--ink); border: 1px solid var(--unk); }
   .notice.show { display: block; }
   @media (prefers-reduced-motion: no-preference) {
@@ -159,6 +161,7 @@
   </div>
 
   <p class="legend"><b>Yes</b> means the organization's sign-in page names an enterprise identity provider. <b>No</b> means the page loaded with none configured. <b>?</b> means the page could not be read, so nothing can be concluded.</p>
+  <p class="credit">Designed by <a href="https://tbaker.com" target="_blank" rel="noopener">Tom Baker</a></p>
 </div>
 
 <script>
